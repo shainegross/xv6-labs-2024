@@ -719,7 +719,6 @@ get_nproc(void)
   return count;
 }
 
-
 // added for sysinfo (syscall lab)
 // Calculates load average
 void
