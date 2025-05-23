@@ -26,6 +26,10 @@ extern char trampoline[]; // trampoline.S
 // must be acquired before any p->lock.
 struct spinlock wait_lock;
 
+// Added manually to compute load average (sysinfo for syscall lab)
+#define LOAD_ALPHA 8  // smoothing factor
+int load_avg = 0;
+
 // Allocate a page for each process's kernel stack.
 // Map it high in memory, followed by an invalid
 // guard page.
@@ -694,4 +698,49 @@ procdump(void)
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+}
+
+
+// added for sysinfo (syscall lab)
+// Gets count of number of processess
+int
+get_nproc(void)
+{
+  int count = 0;
+  struct proc *p;
+  
+  for(p = proc; p < &proc[NPROC]; p++) {
+    acquire(&p->lock);
+    if(p->state != UNUSED) {
+      count++;
+    }
+    release(&p->lock);
+  }
+  return count;
+}
+
+
+// added for sysinfo (syscall lab)
+// Calculates load average
+void
+update_load_avg (void){
+  int runningproc = 0;
+  struct proc *p;
+  for(p = proc; p < &proc[NPROC]; p++) {
+    acquire(&p->lock);
+    if(p->state == RUNNING || p->state == RUNNABLE) {
+      runningproc++;
+    }
+    release(&p->lock);
+  }
+  
+  load_avg = (load_avg * LOAD_ALPHA + runningproc) / (LOAD_ALPHA + 1);
+}
+
+// added for sysinfo (syscall lab)
+int
+get_load_avg(void)
+{
+  update_load_avg();
+  return load_avg;
 }

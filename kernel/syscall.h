@@ -23,3 +23,4 @@
 
 //added for labs
 #define SYS_trace  22 //syscall lab
+#define SYS_sysinfo  23 //syscall lab

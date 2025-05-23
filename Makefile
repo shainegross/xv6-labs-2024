@@ -193,6 +193,7 @@ UPROGS=\
 	$U/_sh\
 	$U/_sleep\
 	$U/_stressfs\
+	$U/_sysinfotest\
 	$U/_trace\
 	$U/_usertests\
 	$U/_grind\
