@@ -9,6 +9,11 @@
 #include "riscv.h"
 #include "defs.h"
 
+#ifdef LAB_PGTBL
+void superinit(void);
+#endif // LAB_PGTBL
+
+
 void freerange(void *pa_start, void *pa_end);
 
 extern char end[]; // first address after kernel.
@@ -26,6 +31,10 @@ struct {
 void
 kinit()
 {
+  #ifdef LAB_PGTBL
+  superinit();
+  #endif
+
   initlock(&kmem.lock, "kmem");
   freerange(end, (void*)PHYSTOP);
 }
@@ -80,3 +89,37 @@ kalloc(void)
     memset((char*)r, 5, PGSIZE); // fill with junk
   return (void*)r;
 }
+
+#ifdef LAB_PGTBL
+  void *superpage_base;
+  char superpage_in_use[NSUPERPAGES];  // 0 = free, 1 = used
+  void superinit(void) {
+    superpage_base = (void*) SUPER_PA;  
+    if ((uint64)superpage_base % SUPERPGSIZE != 0) {
+      panic("superpage_base not aligned");
+    }
+    memset(superpage_in_use, 0, NSUPERPAGES);
+  }
+  
+  // Allocate one 2MB page of physical memory.
+  // Returns a pointer that the kernel can use.
+  // Returns 0 if the memory cannot be allocated.void *superalloc() {
+  void *
+  superalloc(void) {
+    for (int i = 0; i < NSUPERPAGES; i++) {
+      if (!superpage_in_use[i]) {
+        superpage_in_use[i] = 1;
+        return (void*)((uint64)superpage_base + i * SUPERPGSIZE);
+      }
+    }
+    return 0;
+  }
+
+  void superfree(void *pa) {
+    if (((uint64)pa % SUPERPGSIZE) != 0)
+      panic("superfree: unaligned address");
+    int i = ((uint64)pa - (uint64)superpage_base) / SUPERPGSIZE;
+    if (i >= 0 && i < NSUPERPAGES)
+      superpage_in_use[i] = 0;
+  }
+#endif  //LAB_PGTBL

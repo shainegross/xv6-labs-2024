@@ -6,6 +6,8 @@
 #include "proc.h"
 #include "defs.h"
 
+#define DEBUG 1
+
 struct cpu cpus[NCPU];
 
 struct proc proc[NPROC];
@@ -140,6 +142,20 @@ found:
     return 0;
   }
 
+  #if DEBUG
+  #ifdef LAB_PGTBL
+  void *pa = kalloc();
+  if(pa == 0)
+    panic("kalloc");  
+  struct usyscall *u = (struct usyscall *)pa;
+  u->pid = p->pid;  
+  if (mappages(p->pagetable, USYSCALL, PGSIZE, (uint64)pa, PTE_U | PTE_R) < 0) {
+        panic("mappages for USYSCALL failed");
+    }
+  printf("USYS page mapped ");
+  #endif //LAB_PGTBL
+  #endif // DEBUG 
+
   // Set up new context to start executing at forkret,
   // which returns to user space.
   memset(&p->context, 0, sizeof(p->context));
@@ -212,6 +228,11 @@ proc_freepagetable(pagetable_t pagetable, uint64 sz)
 {
   uvmunmap(pagetable, TRAMPOLINE, 1, 0);
   uvmunmap(pagetable, TRAPFRAME, 1, 0);
+  #if DEBUG
+  #ifdef LAB_PGTBL
+  uvmunmap(pagetable, USYSCALL, 1, 1); //added
+  #endif // LAB_PGTBL
+  #endif // DEBUG 
   uvmfree(pagetable, sz);
 }
 

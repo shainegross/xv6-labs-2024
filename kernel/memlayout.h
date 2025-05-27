@@ -62,10 +62,14 @@
 //   TRAPFRAME (p->trapframe, used by the trampoline)
 //   TRAMPOLINE (the same page as in the kernel)
 #define TRAPFRAME (TRAMPOLINE - PGSIZE)
+
 #ifdef LAB_PGTBL
 #define USYSCALL (TRAPFRAME - PGSIZE)
+
+#define NSUPERPAGES 8
+#define SUPER_PA (PHYSTOP - (NSUPERPAGES * SUPERPGSIZE))  
 
 struct usyscall {
   int pid;  // Process ID
 };
-#endif
+#endif //LAB_PGTBL
