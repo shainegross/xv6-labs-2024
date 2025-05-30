@@ -176,3 +176,24 @@ printfinit(void)
   initlock(&pr.lock, "pr");
   pr.locking = 1;
 }
+
+//backtrace function added for traps lab
+void backtrace(void) {
+  uint64 fp = r_fp();  
+  uint64 stack_base = PGROUNDDOWN(fp);
+  printf("fp: 0x%lx\n", fp);
+  
+  while (PGROUNDDOWN(fp) == stack_base && fp != 0) {
+    uint64 ra = *(uint64 *)(fp - 8);
+    printf("fp: 0x%lx\n", fp);
+    printf("ra: 0x%lx\n", ra);
+    uint64 prev_fp = *(uint64 *)(fp - 16);
+   
+    // Avoid invalid memory dereference
+    if (prev_fp == 0 || prev_fp <= fp)
+      break;
+
+    fp = prev_fp;
+  }
+}
+
