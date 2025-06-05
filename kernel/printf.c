@@ -181,7 +181,6 @@ printfinit(void)
 void backtrace(void) {
   uint64 fp = r_fp();  
   uint64 stack_base = PGROUNDDOWN(fp);
-  printf("fp: 0x%lx\n", fp);
   
   while (PGROUNDDOWN(fp) == stack_base && fp != 0) {
     uint64 ra = *(uint64 *)(fp - 8);

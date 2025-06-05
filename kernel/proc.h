@@ -95,6 +95,7 @@ struct proc {
   // wait_lock must be held when using this:
   struct proc *parent;         // Parent process
 
+  
   // these are private to the process, so p->lock need not be held.
   uint64 kstack;               // Virtual address of kernel stack
   uint64 sz;                   // Size of process memory (bytes)
@@ -104,4 +105,11 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+  
+  //  Supports sigalarm (traps lab). Private to the process  
+  uint64 alarm_interval;       // Interval (ticks) between alarms 
+  uint64 handler;              // Supports sigalarm - user-space address of handler function 
+  uint64 ticks_rem;            // Supports sigalarm - Counter (counts down) 
+  struct trapframe alarm_trapframe;   //saves trapframe state to return to
+  int in_handler;              // avoid re-entrant alarm (interrupt while the handler is running); 0 if not hanlding; 1 if in process 
 };

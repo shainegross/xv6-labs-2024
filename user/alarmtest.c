@@ -185,7 +185,11 @@ test3()
   for(int i = 0; i < 500000000; i++)
     ;
   asm volatile("mv %0, a0" : "=r" (a0) );
-
+  
+  uint64 a0_snapshot;
+  asm volatile("mv %0, a0" : "=r" (a0_snapshot));
+  printf("a0_snapshot: 0x%lx\n", a0_snapshot);
+  
   if(a0 != 0xac)
     printf("test3 failed: register a0 changed\n");
   else

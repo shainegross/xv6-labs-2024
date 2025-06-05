@@ -92,3 +92,36 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+
+// Traps lab. Alerts a process to how much CPU time is being used. 
+uint64
+sys_sigalarm(void)
+{
+  int ticks;
+  uint64 fx_handler;
+    
+  argint(0, &ticks);
+  argaddr(1, &fx_handler);
+
+  myproc()->alarm_interval = ticks;
+  myproc()->handler = fx_handler;
+  myproc()->ticks_rem = ticks; 
+  
+  return 0;
+}
+
+// Traps lab. Returns from sigalarm process. 
+uint64
+sys_sigreturn(void)
+{
+  struct proc *p = myproc();
+
+  // Restore the original trapframe (i.e., user registers and state)
+  memmove(p->trapframe, &p->alarm_trapframe, sizeof(struct trapframe));
+
+  // Mark the handler as finished
+  p->in_handler = 0;
+
+  return 0;
+}

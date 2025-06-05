@@ -76,9 +76,29 @@ usertrap(void)
   if(killed(p))
     exit(-1);
 
-  // give up the CPU if this is a timer interrupt.
-  if(which_dev == 2)
-    yield();
+  if(which_dev == 2) {
+    if((p->alarm_interval > 0) & !(p->in_handler)) {
+      if((--p->ticks_rem) == 0){
+          p->in_handler = 1;
+
+          // Save current trapframe 
+          memmove(&p->alarm_trapframe, p->trapframe, sizeof(struct trapframe));
+        
+          // sets return instruction to the handler
+          p->trapframe->epc = p->handler;
+
+          // reset alarm counter
+          p->ticks_rem = p->alarm_interval;
+      }
+    } else {
+    // Timer interrupt, but not running handler — so allow context switch
+     yield();
+  }
+  }
+
+  // give up the CPU if this is a timer interrupt. [ORIGINAL CODE REPLACED FOR LAB]
+  //if(which_dev == 2)
+  //  yield();
 
   usertrapret();
 }
