@@ -44,3 +44,15 @@ You will need a RISC-V "newlib" tool chain from
 https://github.com/riscv/riscv-gnu-toolchain, and qemu compiled for
 riscv64-softmmu.  Once they are installed, and in your shell
 search path, you can run "make qemu".
+
+
+LAB NOTES
+
+PAGE TABLES
+SUPERPAGES not yet working... 
+
+TRAPS LAB
+ALARMTEST NOT FULLY WORKING. TEST3 FAILING AS VALUE OF A0 REGISTER IS BEING CHANGED.
+
+COW
+Cowtest is fully working as are an extensive #of tests in usertests -q.  However, it does fail on later tests. 

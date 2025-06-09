@@ -9,6 +9,12 @@ struct sleeplock;
 struct stat;
 struct superblock;
 
+
+// moved from kalloc.c since vm.c needs it for cow lab
+extern char end[]; // first address after kernel.
+                   // defined by kernel.ld.
+
+
 // bio.c
 void            binit(void);
 struct buf*     bread(uint, uint);
@@ -173,6 +179,11 @@ uint64          walkaddr(pagetable_t, uint64);
 int             copyout(pagetable_t, uint64, char *, uint64);
 int             copyin(pagetable_t, char *, uint64, uint64);
 int             copyinstr(pagetable_t, char *, uint64, uint64);
+#ifdef LAB_COW
+int             pa2index(uint64 pa); 
+int             is_user_page(uint64 pa);
+#endif
+
 
 // plic.c
 void            plicinit(void);

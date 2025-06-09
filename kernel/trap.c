@@ -11,6 +11,9 @@ uint ticks;
 
 extern char trampoline[], uservec[], userret[];
 
+#ifdef LAB_COW
+extern int refcount[];
+#endif
 // in kernelvec.S, calls kerneltrap().
 void kernelvec();
 
@@ -65,9 +68,52 @@ usertrap(void)
     intr_on();
 
     syscall();
-  } else if((which_dev = devintr()) != 0){
+  }   
+#ifdef LAB_COW
+  // if page fault caused by a write to a COW page, turn on PTE_W, remove COW flag and map new pages
+    else if(r_scause() == 15) {
+    uint64 va = r_stval();
+    pte_t *pte;
+    char *mem;
+
+    if ((pte = walk(p->pagetable, PGROUNDDOWN(va), 0)) == 0 || (*pte & PTE_V) == 0) {
+      setkilled(p);
+    }
+
+    // if page fault caused by a write to a COW enabled pte
+    if (pte && is_user_page(PTE2PA(*pte)) && (*pte & PTE_V) && (*pte & PTE_COW)) {
+        uint64 pa = PTE2PA(*pte);
+        uint idx = pa2index(pa);
+        *pte &= ~PTE_COW; 
+        *pte |= PTE_W; 
+        uint flags = PTE_FLAGS(*pte);
+
+        // if COW = 0, then the page was marked as COW but its sharer(s) have been copied out. page already turned to W with COW off 
+        // no further actiuon needed. 
+        // If COW> 1,  copyout the page fully  
+        if (refcount[idx] > 0) {
+            if((mem = kalloc()) == 0){
+              setkilled(p);
+            }
+            memmove(mem, (char*)pa, PGSIZE);
+            if(mappages(p->pagetable, PGROUNDDOWN(va), PGSIZE, (uint64)mem, flags) != 0){
+              kfree(mem);
+              setkilled(p);
+            }            
+            refcount[idx]--;
+          }
+      } else{ 
+          printf("panic in COW code\n");
+          printf("usertrap(): unexpected scause 0x%lx pid=%d\n", r_scause(), p->pid);
+          printf("            sepc=0x%lx stval=0x%lx\n", r_sepc(), r_stval());
+          setkilled(p);
+      }   
+    }
+#endif
+    else if((which_dev = devintr()) != 0){
     // ok
   } else {
+    printf("panic OUTSIDE cow code\n");
     printf("usertrap(): unexpected scause 0x%lx pid=%d\n", r_scause(), p->pid);
     printf("            sepc=0x%lx stval=0x%lx\n", r_sepc(), r_stval());
     setkilled(p);
