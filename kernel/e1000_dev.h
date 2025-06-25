@@ -99,12 +99,12 @@
 // [E1000 3.3.3]
 struct tx_desc
 {
-  uint64 addr;
+  uint64 addr;  // Address of the transmit descriptor in the host memory. 
   uint16 length;
-  uint8 cso;
-  uint8 cmd;
-  uint8 status;
-  uint8 css;
+  uint8 cso;   //checksum offset
+  uint8 cmd;  // command field
+  uint8 status;  // status field
+  uint8 css;    //checksum start
   uint16 special;
 };
 

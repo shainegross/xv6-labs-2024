@@ -20,6 +20,9 @@ static volatile uint32 *regs;
 
 struct spinlock e1000_lock;
 
+extern int kalloc_total;
+extern int kalloc_e1000;
+
 // called by pci_init().
 // xregs is the memory address at which the
 // e1000's registers are mapped.
@@ -89,33 +92,84 @@ e1000_init(uint32 *xregs)
   regs[E1000_RDTR] = 0; // interrupt after every received packet (no timer)
   regs[E1000_RADV] = 0; // interrupt after every packet (no timer)
   regs[E1000_IMS] = (1 << 7); // RXDW -- Receiver Descriptor Write Back
+
+  for(int i = 0; i < RX_RING_SIZE; i++){
+    rx_bufs[i] = kalloc();
+    kalloc_total++;
+    kalloc_e1000++;
+    printf("(%d)ALLOC INIT:  %p\n", kalloc_e1000, rx_bufs[i]);
+    if(rx_bufs[i] == 0)
+      panic("rx kalloc");
+    rx_ring[i].addr = (uint64)rx_bufs[i];
+    rx_ring[i].status = 0;
+  }
 }
 
-int
-e1000_transmit(char *buf, int len)
-{
-  //
-  // Your code here.
-  //
   // buf contains an ethernet frame; program it into
   // the TX descriptor ring so that the e1000 sends it. Stash
   // a pointer so that it can be freed after send completes.
-  //
-
+int
+e1000_transmit(char *buf, int len)
+{
+  push_off();
+  acquire(&e1000_lock);
   
+  uint32 tail = regs[E1000_TDT];
+  struct tx_desc *d = &tx_ring[tail];
+  
+  //// Check status of prior transmission / 
+  if (!(d->status & E1000_TXD_STAT_DD)) {
+    release(&e1000_lock);
+    pop_off();
+    return -1;
+}
+
+  // Free prior descriptor if complete
+  if (tx_bufs[tail]) {
+    kfree(tx_bufs[tail]);
+    tx_bufs[tail] = 0;
+    }
+
+  struct tx_desc *nd = &tx_ring[tail];
+  nd->addr = (uint64)(buf);   
+  nd->length = (uint16)len;
+  nd->cmd = E1000_TXD_CMD_RS | E1000_TXD_CMD_EOP;
+  nd->status = 0;
+
+  regs[E1000_TDT] = (regs[E1000_TDT] + 1) % TX_RING_SIZE;
+  
+  release(&e1000_lock);
+  pop_off();
+
   return 0;
 }
 
-static void
-e1000_recv(void)
-{
-  //
-  // Your code here.
-  //
   // Check for packets that have arrived from the e1000
   // Create and deliver a buf for each packet (using net_rx()).
-  //
 
+static void
+e1000_recv(void)
+{  
+  uint32 head; 
+  struct rx_desc *d;
+
+  head = (regs[E1000_RDT] + 1) % RX_RING_SIZE;
+  d = &rx_ring[head];
+
+  while (d->status & E1000_RXD_STAT_DD) {
+    net_rx(rx_bufs[head], (int) d->length);
+    rx_bufs[head] = kalloc();
+    kalloc_total++;
+    kalloc_e1000++;
+    printf("(%d) ALLOC RECV:  %p\n", kalloc_e1000, rx_bufs[head]);
+    if(!rx_bufs[head])
+      panic("e1000: RX out of memory");
+    d->addr = (uint64)(rx_bufs[head]);
+    d->status = 0;   
+    regs[E1000_RDT] = head;
+    head = (head + 1) % RX_RING_SIZE;
+    d = &rx_ring[head];
+  }
 }
 
 void

@@ -1,3 +1,4 @@
+
 //
 // endianness support
 //
@@ -125,3 +126,34 @@ struct dns_data {
   uint32 ttl;
   uint16 len;
 } __attribute__((packed));
+
+#ifdef LAB_NET
+
+#define MAX_UDP_PORTS 4096
+#define UDP_DATA_MAXLEN 1024  //max size of the UDP payload
+#define MAX_UDP_PACKETS 16 // max queue length of UDP packets
+
+#include "spinlock.h"
+
+struct udp_packet_queue {
+  struct udp_packet_queue *next;
+  uint32 src_ip;           // from IP header
+  uint16 src_port;         // from UDP header
+  uint16 len;              // payload length
+  char data[UDP_DATA_MAXLEN];  // payload buffer (copied from packet)
+};
+
+
+struct udp_binding {
+  struct spinlock lock;
+  struct proc *owner;              // who bound this port
+  struct udp_packet_queue *queue_head;   // FIFO queue
+  struct udp_packet_queue *queue_tail;
+  int count;  // count of packets in linked list; must be < MAX
+};
+
+struct udp_state {
+  struct udp_binding bindings[MAX_UDP_PORTS]; // index by port
+};
+
+#endif //LAB_NET
