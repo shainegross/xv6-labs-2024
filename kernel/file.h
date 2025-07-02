@@ -26,7 +26,11 @@ struct inode {
   short minor;
   short nlink;
   uint size;
+#ifndef LAB_FS
   uint addrs[NDIRECT+1];
+#else
+  uint addrs[NDIRECT+2];
+#endif
 };
 
 // map major device number to device functions.
