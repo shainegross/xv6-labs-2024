@@ -309,6 +309,8 @@ sys_open(void)
   struct file *f;
   struct inode *ip;
   int n;
+  int maxfollow = 10; // max recursive loops for symlinks
+  int follow = 0;
 
   argint(1, &omode);
   if((n = argstr(0, path, MAXPATH)) < 0)
@@ -339,6 +341,36 @@ sys_open(void)
     iunlockput(ip);
     end_op();
     return -1;
+  }
+
+//  int count = 0;
+  while(ip->type == T_SYMLINK && !(omode & O_NOFOLLOW)){
+    //printf("while loop count: %d\n", ++count);
+    char target[MAXPATH];
+
+    int n = readi(ip, 0, (uint64)target, 0, MAXPATH - 1);
+    if(n < 0 || target[0] == '\0'){
+      iunlockput(ip);
+      end_op();
+      return -1;
+    }
+    target[n] = '\0';  // Ensure null-termination
+
+    iunlockput(ip);  // Done with this symlink inode
+
+    ip = namei(target);  // Follow the link
+    if(ip == 0){
+      end_op();
+      return -1;
+    }
+
+    ilock(ip);
+
+    if(++follow > maxfollow){
+      iunlockput(ip);
+      end_op();
+      return -1;  
+    }
   }
 
   if((f = filealloc()) == 0 || (fd = fdalloc(f)) < 0){
@@ -502,4 +534,41 @@ sys_pipe(void)
     return -1;
   }
   return 0;
+}
+
+//implements symlink. Returns 0 for success (-1 for failure). 
+uint64
+sys_symlink(void)
+{
+  char target[MAXPATH], path[MAXPATH];
+  struct inode *ip;
+  
+  if(argstr(0, target, MAXPATH) < 0 || argstr(1, path, MAXPATH) < 0)
+    return -1;
+
+  
+  begin_op();
+
+  ip = create(path, T_SYMLINK, 0, 0);
+  if (!ip) {
+    end_op();  
+    return -1;
+  }
+
+  //ilock(ip);
+  int len = strlen(target);
+  if (writei(ip, 0, (uint64)target, 0, len) != len) {
+    printf("symlink: writei failed");
+    iunlockput(ip);
+    end_op();
+    return -1;
+  }
+  ip->size = strlen(target); // set inode size
+  iupdate(ip);               // write inode to disk
+  iunlockput(ip);
+  
+  end_op();
+
+  return 0;
+
 }
