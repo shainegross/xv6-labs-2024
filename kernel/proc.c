@@ -5,6 +5,9 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "fcntl.h"
+#include "file.h"
+#include "fs.h"
 
 struct cpu cpus[NCPU];
 
@@ -25,6 +28,12 @@ extern char trampoline[]; // trampoline.S
 // memory model when using p->parent.
 // must be acquired before any p->lock.
 struct spinlock wait_lock;
+
+int   munmap_page(uint64 va, int write, struct inode *ip, uint64 file_offset, int writesz);
+int   VMA_check_and_close(struct vma *vma);
+int   VMA_check_in_use(struct vma *vma);  
+void  print_vma(struct vma *vma); 
+void  print_all_vmas(void); 
 
 // Allocate a page for each process's kernel stack.
 // Map it high in memory, followed by an invalid
@@ -145,6 +154,9 @@ found:
   memset(&p->context, 0, sizeof(p->context));
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
+
+  p->proc_vma.allocated = 0;
+  p->mmap_nextva = MMAPBASE;
 
   return p;
 }
@@ -282,7 +294,8 @@ fork(void)
   int i, pid;
   struct proc *np;
   struct proc *p = myproc();
-
+  struct vma *p_vma, *np_vma;
+  
   // Allocate process.
   if((np = allocproc()) == 0){
     return -1;
@@ -296,6 +309,28 @@ fork(void)
   }
   np->sz = p->sz;
 
+  np->proc_vma.allocated = p->proc_vma.allocated;
+
+  for (int i = 0; i < np->proc_vma.allocated; i ++) {
+    p_vma = &p->proc_vma.vma_array[i];
+    if (p_vma->f) {
+      np_vma = &np->proc_vma.vma_array[i];   
+
+      np_vma->va_start = p_vma->va_start;
+      np_vma->length = p_vma->length;
+      np_vma->prot = p_vma->prot;
+      np_vma->flags = p_vma->flags;  
+      np_vma->f =  filedup(p_vma->f);
+      np_vma->file_offset = p_vma->file_offset;
+      memmove(np_vma->mapped, p_vma->mapped, sizeof(p_vma->mapped));
+      uint64 end = p_vma->va_start + p_vma->length;
+      if (end > np->mmap_nextva) 
+        np->mmap_nextva = PGROUNDUP(end);
+
+      //print_vma(np_vma);
+    }       
+  }
+  
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);
 
@@ -351,6 +386,31 @@ exit(int status)
   if(p == initproc)
     panic("init exiting");
 
+  //Close all VMA'd region
+  for (int idx = 0; idx < p->proc_vma.allocated; idx++) {
+    struct vma *vma = &p->proc_vma.vma_array[idx];
+
+    if (!(vma->f && vma->f->ip)) 
+      continue;
+      
+    int write = ((vma->prot & PROT_WRITE) && (vma->flags == MAP_SHARED));
+    int npages = vma->length / PGSIZE;   
+    for (int j = 0; j < npages; j++){
+      if (!vma->mapped[j])
+        continue;  
+
+      uint64 unmap_page = vma->va_start + PGSIZE * j;
+      if (unmap_page >= vma->va_start + vma->length)
+        printf("munmap: error on exit - page outside length");
+      uint64 file_offset = vma->file_offset + (unmap_page - vma->va_start);
+      int filesize_to_copy = vma->f->ip->size - file_offset; 
+      int sz  = ((PGSIZE < filesize_to_copy) ? PGSIZE : filesize_to_copy);
+      munmap_page(unmap_page, write, vma->f->ip, file_offset, sz);
+      vma->mapped[j] = 0;
+      }  
+    VMA_check_and_close(vma);    
+  }
+
   // Close all open files.
   for(int fd = 0; fd < NOFILE; fd++){
     if(p->ofile[fd]){
@@ -359,7 +419,7 @@ exit(int status)
       p->ofile[fd] = 0;
     }
   }
-
+  
   begin_op();
   iput(p->cwd);
   end_op();
@@ -692,4 +752,132 @@ procdump(void)
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+}
+
+// Unmaps VMA regions; takes user virtual address and length as argurments
+// Returns 0 on success; -1 on failure. 
+int
+munmap(uint64 va, uint64 len) {
+  struct proc *p = myproc();
+  struct vma *vma;
+  
+  for (int idx = 0; idx < p->proc_vma.allocated; idx++) {
+    vma = &p->proc_vma.vma_array[idx];
+    if (va >= vma->va_start && va < vma->va_start + vma->length){
+
+      uint64 va_aligned = PGROUNDDOWN(va);
+      len = PGROUNDUP(va + len) - va_aligned;
+      if (va_aligned < vma->va_start || (va_aligned + len) > (vma->va_start + vma->length)) {
+        printf("sysunmap: len  %lx exceeds vma length %lx\n", len, vma->length);
+        return -1;
+      }
+
+      struct file *f = vma->f;
+      struct inode *ip = f->ip;
+
+      int unmap_npages = len / PGSIZE;
+      int unmap_begin_page = ((va_aligned - vma->va_start)/ PGSIZE); 
+
+      int write = ((vma->prot & PROT_WRITE) && (vma->flags == MAP_SHARED));
+      uint64 file_offset = vma->file_offset + (va - vma->va_start);
+      int filesize_to_copy = ip->size - file_offset; 
+
+      for (int i = 0; i < unmap_npages; i++){
+        int sz  = ((PGSIZE < filesize_to_copy) ? PGSIZE : filesize_to_copy);
+        munmap_page(va_aligned, write, ip, file_offset, sz);
+        vma->mapped[unmap_begin_page + i] = 0;
+        filesize_to_copy -= sz;
+        va_aligned += sz;
+        file_offset += sz;
+
+        if(filesize_to_copy < 0) 
+          panic("sys_munmap: copied out of bounds");
+        if (filesize_to_copy == 0) 
+          break;
+      }  
+      VMA_check_and_close(vma);    
+      return 0;
+    }  
+  } 
+  return -1;
+} 
+
+// unmaps a single page; user va must be page aligned
+// write = 1 if writeable (MAP_SHARED should be checked before calling).
+// bitmap tracking not updated by function; must be updating in calling function. 
+int
+munmap_page(uint64 va, int write, struct inode *ip, uint64 file_offset, int writesz){
+  pte_t *pte; 
+  struct proc *p = myproc();
+
+  if (ip == 0) {
+    printf("munmap_page: null inode for va 0x%lx\n", va);
+    return -1;
+  }
+
+  pte = walk(p->pagetable, va, 0); 
+  if (pte && (*pte & PTE_V) && (*pte & (PTE_R | PTE_W |PTE_X))) {
+    char *pa = (char *)walkaddr(p->pagetable, va);
+    if (pa && write){
+      begin_op();
+      acquiresleep(&ip->lock);
+      writei(ip, 1, va, file_offset, writesz);
+      releasesleep(&ip->lock);
+      end_op();
+    }
+    uvmunmap(p->pagetable, va, 1, 1);
+    //printf("munmap page after uvmunmap: pid %d, va aligned: %lx \n", p->pid, va);
+    }
+  return 0;
+}
+
+// Wrapper function that checks if any VMAs are mapped in the byte array. 
+// Returns total # of unmapped slots in vma->mapped  
+//  If none are mapped, closes the file and returns 0.
+int 
+VMA_check_and_close(struct vma *vma){
+  int active = VMA_check_in_use(vma);
+  if(!active && vma->f) {
+    //printf("VMA_check_and_close: pid=%d inum=%d, ref=%d\n", myproc()->pid, vma->f->ip->inum, vma->f->ref);
+    fileclose(vma->f);
+    memset(vma, 0, sizeof(*vma));
+  }
+  return active;
+}
+
+// checks vma's mapped array to see if any VNAs are in use
+// returns # of mappings  
+int 
+VMA_check_in_use(struct vma *vma){
+  int active = 0;
+  for (int j = 0; j < LEN_VMA_ARRAY; j++) 
+    active += vma->mapped[j];       
+
+  return active;
+}
+
+void
+print_vma(struct vma *vma) {
+  if (vma->f && vma->f->ip) {
+    printf("vma address: %p\n", (void*) vma);
+    printf("...va start 0x%lx; inum %d; length %lu, prot %d; flags %d; file offset %lu, \n", vma->va_start, vma->f->ip->inum, vma->length, vma->prot, vma->flags, vma->file_offset);
+    printf("...mapped: ");
+    for (int j = 0; j < LEN_VMA_ARRAY; j++) {
+      if (vma->mapped[j] == 1) 
+        printf("%lx, ", vma->va_start + PGSIZE * j);      
+    } 
+  }
+  printf("\n");
+} 
+
+void
+print_all_vmas(void) {
+  struct proc *p = myproc();
+  printf("pid: %d; # allocated: %d\n", p->pid, p->proc_vma.allocated);
+  for (int idx = 0; idx < p->proc_vma.allocated; idx++) {
+      struct vma *vma = &p->proc_vma.vma_array[idx];
+      if (!(vma->f && vma->f->ip))
+        continue; 
+      print_vma(vma);  
+    }
 }

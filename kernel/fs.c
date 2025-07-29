@@ -484,6 +484,10 @@ readi(struct inode *ip, int user_dst, uint64 dst, uint off, uint n)
     if(addr == 0)
       break;
     bp = bread(ip->dev, addr);
+   // uchar *data = bp->data;
+   // for (int i = 0; i < 16; i++)
+   //   printf("readi: data[%d] = %d", i, data[i]);
+   //  printf("\n");
     m = min(n - tot, BSIZE - off%BSIZE);
     if(either_copyout(user_dst, dst, bp->data + (off % BSIZE), m) == -1) {
       brelse(bp);
@@ -492,6 +496,7 @@ readi(struct inode *ip, int user_dst, uint64 dst, uint off, uint n)
     }
     brelse(bp);
   }
+
   return tot;
 }
 

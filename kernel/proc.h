@@ -81,6 +81,24 @@ struct trapframe {
 
 enum procstate { UNUSED, USED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 
+#define LEN_VMA_ARRAY 16
+#define MAX_MMAP_PAGES 16
+
+struct vma {
+  uint64 va_start;
+  uint64 length;
+  struct file *f;
+  int prot;
+  int flags;
+  uint64 file_offset;
+  char mapped[MAX_MMAP_PAGES];  // bitmap to id used pages
+  };
+
+struct process_vma {
+    struct vma vma_array[LEN_VMA_ARRAY];
+    int allocated;
+  };
+
 // Per-process state
 struct proc {
   struct spinlock lock;
@@ -104,4 +122,8 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+
+  struct process_vma proc_vma;
+  uint64 mmap_nextva;    // next available VA for mmap
 };
+

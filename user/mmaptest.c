@@ -109,8 +109,13 @@ mmap_test(void)
   // offset in the file.
   //
   char *p = mmap(0, PGSIZE*2, PROT_READ, MAP_PRIVATE, fd, 0);
-  if (p == MAP_FAILED)
+  if (p == MAP_FAILED){
+    printf("mmaptest failed");
     err("mmap (1)");
+  }
+  printf("mmaptest: mmap basic completed\n ");
+  for (int j = 0; j < 8; j++)
+    printf("%d ", p[j]);
   _v1(p);
   if (munmap(p, PGSIZE*2) == -1)
     err("munmap (1)");
@@ -121,6 +126,7 @@ mmap_test(void)
   // should be able to map file opened read-only with private writable
   // mapping
   p = mmap(0, PGSIZE*2, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
+  printf("mmaptest: p mapped (MAP_PRIVATE)\n");
   if (p == MAP_FAILED)
     err("mmap (2)");
   if (close(fd) == -1)
@@ -165,6 +171,7 @@ mmap_test(void)
   if ((fd = open(f, O_RDWR)) == -1)
     err("open (3)");
   p = mmap(0, PGSIZE*3, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+  printf("mmap RW: p mapped");
   if (p == MAP_FAILED)
     err("mmap (4)");
   if (close(fd) == -1)
@@ -323,12 +330,16 @@ fork_test(void)
   if(*(p1+PGSIZE) != 'A')
     err("fork mismatch (1)");
 
+  printf("forktest: about to fork\n");  
+
   if((pid = fork()) < 0)
     err("fork");
   if (pid == 0) {
     _v1(p1);
+    printf("mmaptest: fork munmap_test\n");
     if (munmap(p1, PGSIZE) == -1) // just the first page
       err("munmap (7)");
+    printf("mmaptest: about to exit\n");
     exit(0); // tell the parent that the mapping looks OK.
   }
 
@@ -375,7 +386,7 @@ more_test()
     if(munmap(p+PGSIZE, PGSIZE) == -1)
       err("munmap");
     // this should cause a fatal fault
-    printf("*(p+PGSIZE) = %x\n", *(p+PGSIZE));
+    printf("*(p+PGSIZE) = %c\n", *(p+PGSIZE));
     exit(0);
   }
   int st = 0;
@@ -391,7 +402,7 @@ more_test()
     if(munmap(p, PGSIZE) == -1)
       err("munmap");
     // this should cause a fatal fault
-    printf("*p = %x\n", *p);
+    printf("*p = %c\n", *p);
     exit(0);
   }
   st = 0;
