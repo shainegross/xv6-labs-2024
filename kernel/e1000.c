@@ -130,11 +130,11 @@ e1000_transmit(char *buf, int len)
     tx_bufs[tail] = 0;
     }
 
-  struct tx_desc *nd = &tx_ring[tail];
-  nd->addr = (uint64)(buf);   
-  nd->length = (uint16)len;
-  nd->cmd = E1000_TXD_CMD_RS | E1000_TXD_CMD_EOP;
-  nd->status = 0;
+//  struct tx_desc *nd = &tx_ring[tail];
+  d->addr = (uint64)(buf);   
+  d->length = (uint16)len;
+  d->cmd = E1000_TXD_CMD_RS | E1000_TXD_CMD_EOP;
+  d->status = 0;
 
   regs[E1000_TDT] = (regs[E1000_TDT] + 1) % TX_RING_SIZE;
   
@@ -159,11 +159,11 @@ e1000_recv(void)
   while (d->status & E1000_RXD_STAT_DD) {
     net_rx(rx_bufs[head], (int) d->length);
     rx_bufs[head] = kalloc();
-    kalloc_total++;
-    kalloc_e1000++;
-    printf("(%d) ALLOC RECV:  %p\n", kalloc_e1000, rx_bufs[head]);
     if(!rx_bufs[head])
       panic("e1000: RX out of memory");
+/*  kalloc_total++;
+    kalloc_e1000++;
+    printf("(%d) ALLOC RECV:  %p\n", kalloc_e1000, rx_bufs[head]);*/
     d->addr = (uint64)(rx_bufs[head]);
     d->status = 0;   
     regs[E1000_RDT] = head;

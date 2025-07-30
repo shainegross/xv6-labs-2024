@@ -111,23 +111,30 @@ uint64
 sys_recv(void)
 {
   struct proc *p = myproc();
-  int dport, ip_src_addr, sport_ptr, maxlen, payload_len;
-  uint64 bufaddr; 
+  short dport;
+  uint64 ip_src_addr, sport_ptr, bufaddr; 
+  int maxlen, payload_len;
   
-  argint(0, &dport);
-  argint(1, &ip_src_addr);
-  argint(2, &sport_ptr);
+  argint(0, (int*)&dport);
+  argaddr(1, &ip_src_addr);
+  argaddr(2, &sport_ptr);
   argaddr(3, &bufaddr);
   argint(4, &maxlen); 
 
-  if (dport < 0 || dport >= MAX_UDP_PORTS)
+  // Validate arguments
+  if (dport < 0 || dport >= MAX_UDP_PORTS || maxlen <= 0 || maxlen > UDP_DATA_MAXLEN) 
     return -1;
+
+  // Validate user-space pointers  
+  if (!walkaddr(p->pagetable, ip_src_addr) || !walkaddr(p->pagetable, sport_ptr) || 
+    !walkaddr(p->pagetable, bufaddr)) 
+    return -1; 
   
   struct udp_binding *b = &udp_lab.bindings[dport];
-
   acquire(&b->lock);
   if (b->owner != myproc()) {
     release(&b->lock);
+    printf("sys_recv: b->owner fail");
     return -1;
   }
 
@@ -144,25 +151,29 @@ sys_recv(void)
   if (payload_len > maxlen)
     payload_len = maxlen;
 
-  if (dport == 2009)
-  
-  copyout(p->pagetable, bufaddr, curr_head->data, payload_len);
-  copyout(p->pagetable, ip_src_addr, (char *)&curr_head->src_ip, sizeof(uint32));
-  copyout(p->pagetable, sport_ptr, (char *)&curr_head->src_port, sizeof(uint16));
+  if (copyout(p->pagetable, bufaddr, curr_head->data, payload_len) < 0 ||
+        copyout(p->pagetable, ip_src_addr, (char *)&curr_head->src_ip, sizeof(uint32)) < 0 ||
+        copyout(p->pagetable, sport_ptr, (char *)&curr_head->src_port, sizeof(uint16)) < 0) {
+      kfree(curr_head); 
+      release(&b->lock);
+      printf("SYS_RECV copyout fail");
+      return -1;
+  }
 
   debug_count++;
-  printf("SYS RECV debug_count: %d\n", debug_count);
+//  printf("SYS RECV debug_count: %d\n", debug_count);
 
-  if (dport == 2009){
+  /*if (dport == 2009){
     printf("2009 DPORT SYS_REC\n");
     printf("2009: IPRX: len %d; data= ", payload_len);
     for (int i = 0; i < payload_len; i++)
       printf("%c", curr_head->data[i]); 
     printf("\n");
-  }
+  } */
+
   kfree_total++;
   kfree_SYSRECV++;
-  printf("(%d) FREE SYS_RECV: %p\n", kfree_SYSRECV, curr_head);
+//  printf("(%d) FREE SYS_RECV: %p\n", kfree_SYSRECV, curr_head);
   kfree(curr_head);
   release(&b->lock); 
   return payload_len;
@@ -292,41 +303,40 @@ ip_rx(char *buf, int len)
 
   struct eth *eth = (struct eth *) buf;
 
-  struct ip *ipin = (struct ip *)(eth +1); //struct ip *ipin = (struct ip *)(buf + 14);    
+  struct ip *ipin = (struct ip *)(eth +1);     
+//  printf("ip_rx: ip_vhl=%x, ip_p=%d, ip_dst=%x\n", ipin->ip_vhl, ipin->ip_p, ntohl(ipin->ip_dst));
   uint8 ip_protocol = ipin->ip_p;
   if (ip_protocol != IPPROTO_UDP){
     kfree_total++;
     kfree_PROTO++;
-    printf("(%d) FREE IP - !IP_PROTO:  %p\n",  kfree_PROTO, buf);
+//  printf("(%d) FREE IP - !IP_PROTO:  %p\n",  kfree_PROTO, buf);
     kfree(buf);
     return;
   }
+
   uint32 src_ip = ntohl(ipin->ip_src);
-  struct udp *udpin = (struct udp *)(ipin + 1);//struct udp *udpin = (struct udp *)((char *)ipin + 20);
+  int ip_header_len = (ipin->ip_vhl & 0x0F) * 4;  
+  struct udp *udpin = (struct udp *)(((char *)ipin + ip_header_len));
   uint16 dport = ntohs(udpin->dport);  
   uint16 sport = ntohs(udpin->sport);
   int payload_len = ntohs(udpin->ulen) - sizeof(struct udp);
 
-  char *payload = (char *)(udpin) + 8;//sizeof(struct udp);
+  char *payload = (char *)(udpin) + 8;
+//  printf("IPRX: dport %d; len %d -- data = ", dport, payload_len);
 
   if (dport == 2009) {
     printf("2009: IPRX: len %d -- data = ", payload_len);
-    int rem = len - (sizeof(struct eth) + sizeof(struct ip) + sizeof(struct udp)); 
-    for (int i = 0; i < rem; i++){
-      char ch = payload[i];
-      if (ch >= 32 && ch <= 126)
-        printf("'%c'(0x%02x) ", ch, ch);
-      else
-        printf(".(0x%02x) ", ch);
-    } 
-    printf("ip_rx: buf=%p eth=%p ipin=%p udpin=%p payload=%p\n", buf, eth, ipin, udpin, payload);    
+    //int rem = len - (sizeof(struct eth) + sizeof(struct ip) + sizeof(struct udp)); 
+    for (int i = 0; i < payload_len; i++)
+        printf("%c", (char)payload[i]);
     printf("\n");
+//    printf("ip_rx: buf=%p eth=%p ipin=%p udpin=%p payload=%p\n", buf, eth, ipin, udpin, payload);    
   }
 
   if(payload_len < 0 || payload_len > UDP_DATA_MAXLEN) {
     kfree_total++;
     kfree_PAYLOAD++;
-    printf("(%d) FREE IP_PAYOLOAD:  %p\n", kfree_PAYLOAD, buf);
+//    printf("(%d) FREE IP_PAYOLOAD:  %p\n", kfree_PAYLOAD, buf);
     kfree(buf);
     return;  
   } 
@@ -338,7 +348,7 @@ ip_rx(char *buf, int len)
   if (!b->owner){
     kfree_total++;
     kfree_OWNER++;
-    printf("(%d) FREE IP_OWNER:  %p\n", kfree_OWNER, buf);
+    printf("(%d) FREE IP_OWNER: %ld (dport %d)\n", kfree_OWNER, (uint64)b->owner, dport);
     kfree(buf);
     release(&b->lock);
     return; 
@@ -347,20 +357,20 @@ ip_rx(char *buf, int len)
   if(b->count >= MAX_UDP_PACKETS) {
     kfree_total++;
     kfree_MAX_PACKETS++;
-    printf("(%d) FREE IP_MAX_PACKETS:  %p\n", kfree_MAX_PACKETS, buf);
+//    printf("(%d) FREE IP_MAX_PACKETS:  %p\n", kfree_MAX_PACKETS, buf);
     kfree(buf);
     release(&b->lock);
     return;
   }
   
-  struct udp_packet_queue *new_pack = (struct udp_packet_queue *) kalloc();
+  struct udp_packet_queue *new_pack = (struct udp_packet_queue *)kalloc();
   kalloc_total++;
 
-  printf("(%d) ALLOC IPRX PACKET QUEUE:  %p\n", kalloc_total, new_pack);
+//  printf("(%d) ALLOC IPRX PACKET QUEUE:  %p\n", kalloc_total, new_pack);
   if (!new_pack){
     kfree_total++;
     kfree_QUEUE++;
-    printf("(%d) FREE IP: %p\n",kfree_QUEUE, buf);
+//    printf("(%d) FREE IP: %p\n",kfree_QUEUE, buf);
     kfree(buf);
     release(&b->lock);
     return; 
@@ -379,7 +389,7 @@ ip_rx(char *buf, int len)
   b->count++;
   kfree_total++;
   kfree_IPSUCCESS++;
-  printf("(%d)FREE IP IP_RX SUCCESS: %p\n", kfree_IPSUCCESS++, buf);
+//  printf("(%d)FREE IP IP_RX SUCCESS: %p\n", kfree_IPSUCCESS++, buf);
   kfree(buf);
   wakeup(b);
   release(&b->lock);
